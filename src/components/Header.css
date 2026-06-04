@@ -1,0 +1,114 @@
+.c-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: var(--c-header-h);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.c-header-inner {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: var(--c-sp-8);
+}
+
+.c-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-text-heading);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-size: var(--c-fs-lg);
+}
+.c-brand:hover { color: var(--c-text-heading); }
+.c-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.c-brand-dot { color: var(--c-brand-500); margin: 0 1px; }
+
+.c-nav {
+  display: flex;
+  gap: var(--c-sp-2);
+  flex: 1;
+}
+.c-nav-link {
+  position: relative;
+  padding: 8px 12px;
+  border-radius: var(--c-rd-sm);
+  color: var(--c-text);
+  font-weight: 600;
+  font-size: var(--c-fs-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--c-dur-fast) var(--c-ease),
+    color var(--c-dur-fast) var(--c-ease);
+}
+.c-nav-link:hover { background: var(--c-ink-100); color: var(--c-text); }
+.c-nav-link.active {
+  color: var(--c-brand-700);
+  background: var(--c-brand-50);
+}
+
+.c-cart-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--c-rd-full);
+  background: var(--c-grad-brand);
+  color: var(--c-white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.c-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--c-sp-2);
+}
+
+.c-user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--c-rd-full);
+  color: var(--c-text);
+  font-size: var(--c-fs-sm);
+  font-weight: 600;
+  transition: box-shadow var(--c-dur-base) var(--c-ease);
+}
+.c-user-pill:hover {
+  color: var(--c-text);
+  box-shadow: var(--c-sh-md);
+}
+.c-user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--c-grad-brand);
+  color: var(--c-white);
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .c-header-inner { gap: var(--c-sp-3); }
+  .c-user-name { display: none; }
+}

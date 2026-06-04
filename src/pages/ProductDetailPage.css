@@ -1,0 +1,102 @@
+.pd {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: var(--c-sp-10);
+  align-items: start;
+}
+@media (max-width: 880px) {
+  .pd { grid-template-columns: 1fr; gap: var(--c-sp-6); }
+}
+
+.pd-img {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--c-rd-xl);
+  overflow: hidden;
+  box-shadow: var(--c-sh-md);
+  border: 1px solid var(--c-border-soft);
+}
+.pd-img-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 180px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.35);
+  letter-spacing: -0.04em;
+}
+
+.pd-cat {
+  font-size: var(--c-fs-xs);
+  font-weight: 700;
+  color: var(--c-brand-700);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pd-name {
+  margin-top: 8px;
+  font-size: clamp(28px, 4vw, 38px);
+  letter-spacing: -0.025em;
+}
+.pd-status-row {
+  margin-top: var(--c-sp-3);
+  display: flex; gap: 8px;
+}
+.pd-price {
+  margin-top: var(--c-sp-4);
+  font-size: var(--c-fs-3xl);
+  font-weight: 800;
+  color: var(--c-text-heading);
+  letter-spacing: -0.02em;
+}
+.pd-desc {
+  margin-top: var(--c-sp-6);
+  padding-top: var(--c-sp-6);
+  border-top: 1px solid var(--c-border-soft);
+  color: var(--c-text-muted);
+  white-space: pre-wrap;
+}
+.pd-qty {
+  margin-top: var(--c-sp-6);
+}
+.pd-qty-row {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 200px;
+}
+.pd-qty-input {
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.pd-qty-input::-webkit-outer-spin-button,
+.pd-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pd-actions {
+  margin-top: var(--c-sp-6);
+  display: grid;
+  gap: var(--c-sp-3);
+}
+.pd-hint {
+  margin-top: var(--c-sp-4);
+  font-size: var(--c-fs-xs);
+  color: var(--c-text-muted);
+}
+
+.pd-skel {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: var(--c-sp-10);
+}
+.pd-skel-img {
+  aspect-ratio: 1 / 1;
+  border-radius: var(--c-rd-xl);
+}
+@media (max-width: 880px) {
+  .pd-skel { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,30 @@
+.c-footer {
+  margin-top: var(--c-sp-20);
+  padding: var(--c-sp-10) 0 var(--c-sp-12);
+  border-top: 1px solid var(--c-border-soft);
+  background: var(--c-surface);
+}
+.c-footer-inner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--c-sp-6);
+  flex-wrap: wrap;
+}
+.c-footer-brand {
+  font-weight: 800;
+  font-size: var(--c-fs-lg);
+  color: var(--c-text-heading);
+  letter-spacing: -0.02em;
+}
+.c-footer-tag {
+  margin-top: 4px;
+  font-size: var(--c-fs-sm);
+  color: var(--c-text-muted);
+}
+.c-footer-meta {
+  display: flex;
+  gap: var(--c-sp-4);
+  font-size: var(--c-fs-xs);
+  color: var(--c-text-muted);
+}
