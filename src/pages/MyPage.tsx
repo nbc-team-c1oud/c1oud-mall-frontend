@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { formatDateTime, formatNumber } from "../lib/format";
 import "./MyPage.css";
@@ -18,6 +19,25 @@ export default function MyPage() {
           새로고침
         </button>
       </header>
+
+      <section className="my-shortcuts">
+        <Link to="/orders" className="my-shortcut card">
+          <div className="my-shortcut-icon" aria-hidden="true">📦</div>
+          <div>
+            <div className="my-shortcut-title">주문 내역</div>
+            <div className="my-shortcut-sub">결제한 주문을 확인해요</div>
+          </div>
+          <div className="my-shortcut-arrow" aria-hidden="true">→</div>
+        </Link>
+        <Link to="/cart" className="my-shortcut card">
+          <div className="my-shortcut-icon" aria-hidden="true">🛒</div>
+          <div>
+            <div className="my-shortcut-title">장바구니</div>
+            <div className="my-shortcut-sub">결제 전 상품을 모아둬요</div>
+          </div>
+          <div className="my-shortcut-arrow" aria-hidden="true">→</div>
+        </Link>
+      </section>
 
       <section className="my-grid">
         <InfoCell label="역할" value={user.role === "ADMIN" ? "관리자" : "일반회원"} />

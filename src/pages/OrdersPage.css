@@ -1,0 +1,141 @@
+.orders-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--c-sp-5);
+}
+
+.orders-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.orders-sub {
+  color: var(--c-text-muted);
+  font-size: var(--c-fs-sm);
+}
+
+.orders-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--c-sp-3);
+}
+.orders-skel {
+  height: 116px;
+  border-radius: var(--c-rd-lg);
+}
+
+.orders-empty {
+  padding: var(--c-sp-12) var(--c-sp-6);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--c-sp-3);
+}
+.orders-empty-icon {
+  font-size: 56px;
+  filter: grayscale(0.2);
+}
+.orders-empty p {
+  color: var(--c-text-muted);
+  margin-bottom: var(--c-sp-3);
+}
+
+.orders-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--c-sp-3);
+}
+
+.orders-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "head head"
+    "name name"
+    "meta total";
+  gap: var(--c-sp-3);
+  padding: var(--c-sp-5);
+  color: inherit;
+  transition:
+    transform var(--c-dur-fast) var(--c-ease),
+    box-shadow var(--c-dur-base) var(--c-ease),
+    border-color var(--c-dur-fast) var(--c-ease);
+}
+.orders-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--c-brand-300);
+  box-shadow: var(--c-sh-md);
+}
+
+.orders-card-head {
+  grid-area: head;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--c-sp-3);
+}
+.orders-card-date {
+  font-size: var(--c-fs-xs);
+  color: var(--c-text-muted);
+}
+
+.orders-card-name {
+  grid-area: name;
+  font-weight: 700;
+  color: var(--c-text-heading);
+  font-size: var(--c-fs-lg);
+}
+
+.orders-card-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--c-sp-3);
+  font-size: var(--c-fs-xs);
+  color: var(--c-text-muted);
+  align-items: center;
+}
+.orders-card-no {
+  font-family: var(--c-font-mono);
+  color: var(--c-text);
+  background: var(--c-ink-50);
+  padding: 2px 8px;
+  border-radius: var(--c-rd-sm);
+}
+
+.orders-card-total {
+  grid-area: total;
+  align-self: end;
+  text-align: right;
+}
+.orders-card-total span {
+  display: block;
+  font-size: var(--c-fs-xs);
+  color: var(--c-text-muted);
+}
+.orders-card-total strong {
+  font-size: var(--c-fs-xl);
+  font-weight: 800;
+  background: var(--c-grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 720px) {
+  .orders-card {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "head"
+      "name"
+      "meta"
+      "total";
+  }
+  .orders-card-total {
+    text-align: left;
+  }
+}

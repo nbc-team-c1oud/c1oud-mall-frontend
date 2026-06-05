@@ -47,6 +47,9 @@ export function Header() {
               </span>
             )}
           </NavLink>
+          {status === "authed" && (
+            <NavLink to="/orders" className="c-nav-link">주문내역</NavLink>
+          )}
         </nav>
 
         <div className="c-header-actions">
