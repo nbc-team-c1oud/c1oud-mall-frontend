@@ -41,7 +41,8 @@ export default function CartPage() {
     if (!hasSelection) return;
     navigate("/checkout", {
       state: {
-        cartItemIds: selectedLines.map((l) => l.cartItemId),
+        // 선택 정보는 표시용. 실제 송신은 CheckoutPage가 BE 우회로 빈 배열로 보냄.
+        selectedProductIds: selectedLines.map((l) => l.productId),
       },
     });
   };
@@ -57,6 +58,11 @@ export default function CartPage() {
         <h1>장바구니</h1>
         <button className="btn btn-ghost btn-sm" onClick={clear}>전체 비우기</button>
       </header>
+
+      <div className="alert alert-warn cart-note">
+        ⚠ 백엔드에 장바구니 조회 API가 추가되기 전(cart M4)까지는 결제 시
+        <strong> 장바구니 전체가 함께 결제</strong>됩니다. 아래 선택 UI는 향후 자동 활성화됩니다.
+      </div>
 
       <div className="cart-toolbar card">
         <label className="cart-toolbar-all">
@@ -84,17 +90,17 @@ export default function CartPage() {
       <div className="cart-grid">
         <div className="cart-lines">
           {lines.map((l) => {
-            const checked = isSelected(l.cartItemId);
+            const checked = isSelected(l.productId);
             return (
               <div
-                key={l.cartItemId}
+                key={l.productId}
                 className={`cart-line card${checked ? " is-selected" : ""}`}
               >
                 <label className="cart-line-check" aria-label={`${l.name} 선택`}>
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggleSelect(l.cartItemId)}
+                    onChange={() => toggleSelect(l.productId)}
                   />
                 </label>
                 <Link to={`/products/${l.productId}`} className="cart-line-thumb">

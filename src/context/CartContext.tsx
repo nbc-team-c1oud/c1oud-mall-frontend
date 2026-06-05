@@ -12,7 +12,8 @@ import { ApiError } from "../api/client";
 
 export interface CartLine {
   productId: number;
-  cartItemId: number;
+  // cart_item.id (테이블 PK). BE가 응답에 포함하기 전(M4)까지는 null.
+  cartItemId: number | null;
   name: string;
   price: number;
   category: string;
@@ -24,6 +25,7 @@ interface CartState {
   lines: CartLine[];
   totalQuantity: number;
   totalAmount: number;
+  // 선택 기준키는 productId (cartItemId는 null일 수 있어 부적합)
   selectedIds: number[];
   selectedLines: CartLine[];
   selectedAmount: number;
@@ -32,11 +34,11 @@ interface CartState {
   setQuantity: (productId: number, qty: number) => void;
   remove: (productId: number) => void;
   clear: () => void;
-  clearByIds: (cartItemIds: number[]) => void;
-  toggleSelect: (cartItemId: number) => void;
+  clearByCartItemIds: (cartItemIds: number[]) => void;
+  toggleSelect: (productId: number) => void;
   selectAll: () => void;
   unselectAll: () => void;
-  isSelected: (cartItemId: number) => boolean;
+  isSelected: (productId: number) => boolean;
 }
 
 const STORAGE_KEY = "c1oud.cart";
@@ -49,14 +51,23 @@ function load(): CartLine[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Partial<CartLine>[];
     if (!Array.isArray(parsed)) return [];
-    // 과거 스키마(cartItemId 없음) 호환: productId를 임시 cartItemId로 채움
     return parsed
-      .filter((l): l is CartLine =>
+      .filter((l): l is Partial<CartLine> =>
         typeof l?.productId === "number" && typeof l?.name === "string",
       )
       .map((l) => ({
-        ...l,
-        cartItemId: typeof l.cartItemId === "number" ? l.cartItemId : l.productId,
+        productId: l.productId as number,
+        // 과거 폴백(cartItemId=productId)을 가진 데이터는 의심스러우므로 null로 정정.
+        // BE M4 이후 응답으로 받은 진짜 cartItemId만 신뢰.
+        cartItemId:
+          typeof l.cartItemId === "number" && l.cartItemId !== l.productId
+            ? l.cartItemId
+            : null,
+        name: l.name as string,
+        price: typeof l.price === "number" ? l.price : 0,
+        category: typeof l.category === "string" ? l.category : "",
+        quantity: typeof l.quantity === "number" ? l.quantity : 1,
+        addedAt: typeof l.addedAt === "string" ? l.addedAt : new Date().toISOString(),
       }));
   } catch {
     return [];
@@ -74,7 +85,7 @@ function save(lines: CartLine[]) {
 export function CartProvider({ children }: { children: ReactNode }) {
   const [lines, setLines] = useState<CartLine[]>(() => load());
   const [selectedIds, setSelectedIds] = useState<number[]>(() =>
-    load().map((l) => l.cartItemId),
+    load().map((l) => l.productId),
   );
 
   useEffect(() => {
@@ -84,7 +95,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // lines가 줄어들면 selectedIds도 동기화
   useEffect(() => {
     setSelectedIds((prev) => {
-      const valid = new Set(lines.map((l) => l.cartItemId));
+      const valid = new Set(lines.map((l) => l.productId));
       const next = prev.filter((id) => valid.has(id));
       return next.length === prev.length ? prev : next;
     });
@@ -119,18 +130,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       const newLine: CartLine = {
         ...snap,
-        cartItemId: serverCartItemId ?? snap.productId,
+        cartItemId: serverCartItemId,
         quantity: qty,
         addedAt: new Date().toISOString(),
       };
       return [...prev, newLine];
     });
 
-    setSelectedIds((prev) => {
-      const fallbackId = serverCartItemId ?? snap.productId;
-      if (prev.includes(fallbackId)) return prev;
-      return [...prev, fallbackId];
-    });
+    setSelectedIds((prev) =>
+      prev.includes(snap.productId) ? prev : [...prev, snap.productId],
+    );
   }, []);
 
   const setQuantity = useCallback<CartState["setQuantity"]>((productId, qty) => {
@@ -150,21 +159,26 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setSelectedIds([]);
   }, []);
 
-  const clearByIds = useCallback<CartState["clearByIds"]>((cartItemIds) => {
-    const remove = new Set(cartItemIds);
-    setLines((prev) => prev.filter((l) => !remove.has(l.cartItemId)));
-  }, []);
+  const clearByCartItemIds = useCallback<CartState["clearByCartItemIds"]>(
+    (cartItemIds) => {
+      const remove = new Set(cartItemIds);
+      setLines((prev) =>
+        prev.filter((l) => l.cartItemId === null || !remove.has(l.cartItemId)),
+      );
+    },
+    [],
+  );
 
-  const toggleSelect = useCallback<CartState["toggleSelect"]>((cartItemId) => {
+  const toggleSelect = useCallback<CartState["toggleSelect"]>((productId) => {
     setSelectedIds((prev) =>
-      prev.includes(cartItemId)
-        ? prev.filter((id) => id !== cartItemId)
-        : [...prev, cartItemId],
+      prev.includes(productId)
+        ? prev.filter((id) => id !== productId)
+        : [...prev, productId],
     );
   }, []);
 
   const selectAll = useCallback<CartState["selectAll"]>(() => {
-    setSelectedIds(lines.map((l) => l.cartItemId));
+    setSelectedIds(lines.map((l) => l.productId));
   }, [lines]);
 
   const unselectAll = useCallback<CartState["unselectAll"]>(() => {
@@ -172,7 +186,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isSelected = useCallback<CartState["isSelected"]>(
-    (cartItemId) => selectedIds.includes(cartItemId),
+    (productId) => selectedIds.includes(productId),
     [selectedIds],
   );
 
@@ -181,7 +195,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const selectedLines = useMemo(() => {
     const sel = new Set(selectedIds);
-    return lines.filter((l) => sel.has(l.cartItemId));
+    return lines.filter((l) => sel.has(l.productId));
   }, [lines, selectedIds]);
   const selectedAmount = selectedLines.reduce(
     (sum, l) => sum + l.price * l.quantity,
@@ -202,7 +216,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setQuantity,
       remove,
       clear,
-      clearByIds,
+      clearByCartItemIds,
       toggleSelect,
       selectAll,
       unselectAll,
@@ -220,7 +234,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setQuantity,
       remove,
       clear,
-      clearByIds,
+      clearByCartItemIds,
       toggleSelect,
       selectAll,
       unselectAll,

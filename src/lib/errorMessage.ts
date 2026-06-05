@@ -1,6 +1,9 @@
 import { ApiError } from "../api/client";
 
 const CODE_MESSAGES: Record<string, string> = {
+  /* === 장바구니 (CT) === */
+  CT003: "장바구니가 비어있거나 선택한 상품을 찾을 수 없습니다.",
+
   /* === 주문 (OD) === */
   OD001: "주문을 찾을 수 없습니다.",
   OD002: "이미 처리되었거나 변경할 수 없는 주문 상태입니다.",
