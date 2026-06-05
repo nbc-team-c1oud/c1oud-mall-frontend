@@ -1,16 +1,23 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import { describeError } from "../lib/errorMessage";
 import { formatPrice } from "../lib/format";
 import "./CartPage.css";
 
 export default function CartPage() {
   const navigate = useNavigate();
+  const { status } = useAuth();
   const {
     lines,
     totalAmount,
     totalQuantity,
+    loading,
+    error,
     setQuantity,
     remove,
+    removeSelected,
     clear,
     selectedIds,
     selectedLines,
@@ -20,7 +27,48 @@ export default function CartPage() {
     selectAll,
     unselectAll,
     isSelected,
+    refresh,
   } = useCart();
+
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  if (status === "guest") {
+    return (
+      <div className="container cart-empty">
+        <div className="cart-empty-icon" aria-hidden="true">🔒</div>
+        <h2>로그인이 필요합니다</h2>
+        <p>장바구니는 로그인 후 이용할 수 있어요.</p>
+        <Link to="/login" className="btn btn-primary btn-lg">로그인하러 가기</Link>
+      </div>
+    );
+  }
+
+  if (loading && lines.length === 0) {
+    return (
+      <div className="container cart-wrap">
+        <header className="cart-head">
+          <h1>장바구니</h1>
+        </header>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="skeleton" style={{ height: 112, borderRadius: 16 }} />
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container cart-wrap">
+        <header className="cart-head">
+          <h1>장바구니</h1>
+        </header>
+        <div className="alert alert-error">{error}</div>
+        <button className="btn btn-secondary" onClick={() => void refresh()}>
+          다시 시도
+        </button>
+      </div>
+    );
+  }
 
   if (lines.length === 0) {
     return (
@@ -37,12 +85,21 @@ export default function CartPage() {
   const someSelected = selectedIds.length > 0 && !allSelected;
   const hasSelection = selectedLines.length > 0;
 
+  const runAction = async (fn: () => Promise<void>) => {
+    setActionError(null);
+    try {
+      await fn();
+    } catch (e) {
+      const d = describeError(e);
+      setActionError(`[${d.code}] ${d.message}`);
+    }
+  };
+
   const handleCheckout = () => {
     if (!hasSelection) return;
     navigate("/checkout", {
       state: {
-        // 선택 정보는 표시용. 실제 송신은 CheckoutPage가 BE 우회로 빈 배열로 보냄.
-        selectedProductIds: selectedLines.map((l) => l.productId),
+        cartItemIds: selectedLines.map((l) => l.cartItemId),
       },
     });
   };
@@ -56,13 +113,16 @@ export default function CartPage() {
     <div className="container cart-wrap">
       <header className="cart-head">
         <h1>장바구니</h1>
-        <button className="btn btn-ghost btn-sm" onClick={clear}>전체 비우기</button>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => void runAction(clear)}
+          disabled={lines.length === 0}
+        >
+          전체 비우기
+        </button>
       </header>
 
-      <div className="alert alert-warn cart-note">
-        ⚠ 백엔드에 장바구니 조회 API가 추가되기 전(cart M4)까지는 결제 시
-        <strong> 장바구니 전체가 함께 결제</strong>됩니다. 아래 선택 UI는 향후 자동 활성화됩니다.
-      </div>
+      {actionError && <div className="alert alert-error">{actionError}</div>}
 
       <div className="cart-toolbar card">
         <label className="cart-toolbar-all">
@@ -77,61 +137,76 @@ export default function CartPage() {
           />
           <span>전체 선택 ({selectedIds.length}/{lines.length})</span>
         </label>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={unselectAll}
-          disabled={selectedIds.length === 0}
-        >
-          선택 해제
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={unselectAll}
+            disabled={selectedIds.length === 0}
+          >
+            선택 해제
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={() =>
+              void runAction(() => removeSelected(selectedIds))
+            }
+            disabled={selectedIds.length === 0}
+          >
+            선택 삭제 ({selectedIds.length})
+          </button>
+        </div>
       </div>
 
       <div className="cart-grid">
         <div className="cart-lines">
           {lines.map((l) => {
-            const checked = isSelected(l.productId);
+            const checked = isSelected(l.cartItemId);
             return (
               <div
-                key={l.productId}
+                key={l.cartItemId}
                 className={`cart-line card${checked ? " is-selected" : ""}`}
               >
-                <label className="cart-line-check" aria-label={`${l.name} 선택`}>
+                <label className="cart-line-check" aria-label={`${l.productName} 선택`}>
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggleSelect(l.productId)}
+                    onChange={() => toggleSelect(l.cartItemId)}
                   />
                 </label>
                 <Link to={`/products/${l.productId}`} className="cart-line-thumb">
-                  <ThumbMini name={l.name} />
+                  <ThumbMini name={l.productName} />
                 </Link>
                 <div className="cart-line-info">
-                  <div className="cart-line-cat">{l.category}</div>
                   <Link to={`/products/${l.productId}`} className="cart-line-name">
-                    {l.name}
+                    {l.productName}
                   </Link>
                   <div className="cart-line-unit">{formatPrice(l.price)}</div>
                 </div>
                 <div className="cart-line-qty">
                   <button
                     className="btn btn-ghost btn-sm"
-                    onClick={() => setQuantity(l.productId, l.quantity - 1)}
+                    onClick={() =>
+                      void runAction(() => setQuantity(l.cartItemId, l.quantity - 1))
+                    }
                     aria-label="감소"
                   >−</button>
                   <span aria-live="polite">{l.quantity}</span>
                   <button
                     className="btn btn-ghost btn-sm"
-                    onClick={() => setQuantity(l.productId, l.quantity + 1)}
+                    onClick={() =>
+                      void runAction(() => setQuantity(l.cartItemId, l.quantity + 1))
+                    }
                     aria-label="증가"
                   >＋</button>
                 </div>
                 <div className="cart-line-total">
-                  {formatPrice(l.price * l.quantity)}
+                  {formatPrice(l.subTotal)}
                 </div>
                 <button
                   className="btn btn-ghost btn-sm cart-line-del"
-                  onClick={() => remove(l.productId)}
+                  onClick={() => void runAction(() => remove(l.cartItemId))}
                   aria-label="삭제"
                   title="삭제"
                 >×</button>

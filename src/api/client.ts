@@ -103,6 +103,11 @@ export async function api<T>(
     throw new ApiError("HTTP", `요청 실패 (${res.status})`, res.status);
   }
 
+  // 204 No Content 또는 빈 본문은 정상 — undefined 반환
+  if (res.status === 204 || !text) {
+    return undefined as T;
+  }
+
   if (!envelope) {
     throw new ApiError("PARSE", "응답을 해석할 수 없습니다.", res.status);
   }

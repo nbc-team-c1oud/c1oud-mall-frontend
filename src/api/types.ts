@@ -85,6 +85,25 @@ export interface AddCartItemResponse {
   quantity: number;
 }
 
+export interface UpdateCartItemQuantityRequest {
+  quantity: number;
+}
+
+export interface CartListItemResponse {
+  cartItemId: number;
+  productId: number;
+  productName: string;
+  price: number;
+  quantity: number;
+  /** BE 필드명: subTotal (camelCase 대문자 T) */
+  subTotal: number;
+}
+
+export interface CartListResponse {
+  items: CartListItemResponse[];
+  totalPrice: number;
+}
+
 export interface PaymentConfirmRequest {
   orderId: number;
   portonePaymentId: string;

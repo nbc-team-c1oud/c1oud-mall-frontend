@@ -32,31 +32,31 @@ interface FailReason {
 }
 
 interface LocationState {
-  selectedProductIds?: number[];
+  cartItemIds?: number[];
 }
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const { lines, totalAmount, selectedLines, clear } = useCart();
+  const { lines, selectedLines, refresh } = useCart();
 
-  // 표시용 — BE M4 전에는 어차피 전체 장바구니가 결제되므로 정보 제공 목적
-  const highlightedLines = useMemo<CartLine[]>(() => {
-    const stateIds = (location.state as LocationState | null)?.selectedProductIds;
+  // 결제 대상 선정 우선순위:
+  //   1) route state.cartItemIds (CartPage에서 선택한 항목)
+  //   2) CartContext.selectedLines (체크박스로 선택해둔 항목)
+  //   3) 전체 lines
+  const targetLines = useMemo<CartLine[]>(() => {
+    const stateIds = (location.state as LocationState | null)?.cartItemIds;
     if (stateIds && stateIds.length > 0) {
       const idSet = new Set(stateIds);
-      const matched = lines.filter((l) => idSet.has(l.productId));
+      const matched = lines.filter((l) => idSet.has(l.cartItemId));
       if (matched.length > 0) return matched;
     }
     if (selectedLines.length > 0) return selectedLines;
     return lines;
   }, [lines, selectedLines, location.state]);
 
-  // 실제 결제 대상은 항상 전체 장바구니 (BE 우회)
-  const targetLines = lines;
-
-  const targetAmount = targetLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+  const targetAmount = targetLines.reduce((sum, l) => sum + l.subTotal, 0);
 
   const [step, setStep] = useState<Step>("idle");
   const [payMethod, setPayMethod] = useState<PayMethodValue>("CARD");
@@ -90,8 +90,8 @@ export default function CheckoutPage() {
   const pgAmount = Math.max(0, targetAmount - pointUse);
   const orderName =
     targetLines.length === 1
-      ? targetLines[0].name
-      : `${targetLines[0].name} 외 ${targetLines.length - 1}건`;
+      ? targetLines[0].productName
+      : `${targetLines[0].productName} 외 ${targetLines.length - 1}건`;
 
   const resetForRetry = () => {
     setOrder(null);
@@ -118,11 +118,8 @@ export default function CheckoutPage() {
     setStep("init");
     let created: OrderCheckoutResponse;
     try {
-      // TODO(cart-M4): BE에 cart 조회 API가 추가되어 cartItemId를 받을 수 있게 되면
-      //   selectedLines의 cartItemId(not null)만 모아 보내도록 변경.
-      //   현재는 BE §1.5 권고대로 빈 배열 = 전체 장바구니 주문으로 우회.
       created = await createOrder({
-        cartItemIds: [],
+        cartItemIds: targetLines.map((l) => l.cartItemId),
       });
       setOrder(created);
     } catch (e) {
@@ -132,9 +129,7 @@ export default function CheckoutPage() {
       return;
     }
 
-    // M3 미완료 갭: portonePaymentId가 비어있으면 FE에서 임시 UUID 생성
-    // TODO(payment-M3): OrderFacade.createOrder가 paymentInitiationPort.initiate를
-    //   호출하도록 머지되면 아래 폴백을 제거하고 created.portonePaymentId만 사용.
+    // payment M3 미완료 갭: portonePaymentId가 비어있으면 FE에서 임시 UUID 생성
     let portonePaymentId = created.portonePaymentId ?? "";
     if (!portonePaymentId) {
       portonePaymentId = crypto.randomUUID();
@@ -209,8 +204,8 @@ export default function CheckoutPage() {
   };
 
   const finishOk = () => {
-    // BE 우회로 전체 장바구니가 결제되므로 전체 비움
-    clear();
+    // BE가 주문 시 cart_item을 자동 삭제 → 서버 상태로 refresh
+    void refresh();
     navigate("/orders", { replace: true });
   };
 
@@ -222,17 +217,6 @@ export default function CheckoutPage() {
       <p className="co-sub">
         PortOne V2 브라우저 SDK 실연동 + 백엔드 주문 생성 API 연동입니다.
       </p>
-
-      <div className="alert alert-warn">
-        ⚠ 백엔드 cart 조회 API가 추가되기 전(cart M4)까지는
-        <strong> 장바구니 전체({lines.length}건)가 함께 결제</strong>됩니다.
-        {highlightedLines.length < lines.length && (
-          <>
-            {" "}선택했던 {highlightedLines.length}건 외에 나머지 항목도 같이 청구되니
-            장바구니를 다시 확인해주세요.
-          </>
-        )}
-      </div>
 
       {!HAS_PORTONE_ENV && (
         <div className="alert alert-warn">
@@ -258,9 +242,9 @@ export default function CheckoutPage() {
           <h3 style={{ marginTop: 28 }}>주문 상품 ({targetLines.length}건)</h3>
           <ul className="co-items">
             {targetLines.map((l) => (
-              <li key={l.productId}>
-                <span>{l.name} × {l.quantity}</span>
-                <span>{formatPrice(l.price * l.quantity)}</span>
+              <li key={l.cartItemId}>
+                <span>{l.productName} × {l.quantity}</span>
+                <span>{formatPrice(l.subTotal)}</span>
               </li>
             ))}
           </ul>
@@ -330,12 +314,8 @@ export default function CheckoutPage() {
             <div><span>storeId</span><code>{STORE_ID ? `${STORE_ID.slice(0, 12)}…` : "미설정"}</code></div>
             <div><span>channelKey</span><code>{CHANNEL_KEY ? `${CHANNEL_KEY.slice(0, 12)}…` : "미설정"}</code></div>
             <div>
-              <span>장바구니 총액</span>
-              <code>{formatPrice(totalAmount)}</code>
-            </div>
-            <div>
               <span>cartItemIds</span>
-              <code>[] (BE 우회 — 전체 장바구니)</code>
+              <code>[{targetLines.map((l) => l.cartItemId).join(", ")}]</code>
             </div>
           </div>
 
