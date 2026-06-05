@@ -1,6 +1,7 @@
 export type UserRole = "USER" | "ADMIN";
 export type ProductStatus = "SALE" | "SOLD_OUT";
 export type PaymentStatus = "PENDING" | "COMPLETED" | "FAILED";
+export type OrderStatus = "PENDING_PAYMENT" | "CONFIRMED" | "CANCELLED";
 
 export interface ApiEnvelope<T> {
   success: boolean;
@@ -78,6 +79,12 @@ export interface AddCartItemRequest {
   quantity: number;
 }
 
+export interface AddCartItemResponse {
+  cartItemId: number;
+  productId: number;
+  quantity: number;
+}
+
 export interface PaymentConfirmRequest {
   orderId: number;
   portonePaymentId: string;
@@ -88,4 +95,62 @@ export interface PaymentConfirmResponse {
   portonePaymentId: string;
   status: PaymentStatus;
   alreadyCompleted: boolean;
+}
+
+/* === Order === */
+
+export interface GetOrderPreviewResponse {
+  items: OrderPreviewItem[];
+  totalPrice: number;
+}
+
+export interface OrderPreviewItem {
+  productId: number;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface OrderCheckoutRequest {
+  cartItemIds: number[];
+}
+
+export interface OrderCheckoutResponse {
+  orderId: number;
+  portonePaymentId: string | null;
+  orderNumber: string;
+  orderName: string;
+  orderStatus: OrderStatus;
+  totalPrice: number;
+}
+
+export interface OrderItemResponse {
+  productId: number;
+  productNameSnapshot: string;
+  priceSnapshot: number;
+  quantity: number;
+  refundedQuantity: number;
+  subtotal: number;
+}
+
+export interface OrderResponse {
+  orderId: number;
+  orderNumber: string;
+  orderName: string;
+  orderStatus: OrderStatus;
+  totalAmount: number;
+  paymentId: number;
+  createdAt: string;
+}
+
+export interface OrderByOrderIdResponse {
+  orderId: number;
+  orderNumber: string;
+  orderName: string;
+  orderStatus: OrderStatus;
+  totalAmount: number;
+  paymentId: number;
+  createdAt: string;
+  orderItems: OrderItemResponse[];
 }

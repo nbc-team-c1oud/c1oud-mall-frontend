@@ -1,10 +1,26 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { formatPrice } from "../lib/format";
 import "./CartPage.css";
 
 export default function CartPage() {
-  const { lines, totalAmount, totalQuantity, setQuantity, remove, clear } = useCart();
+  const navigate = useNavigate();
+  const {
+    lines,
+    totalAmount,
+    totalQuantity,
+    setQuantity,
+    remove,
+    clear,
+    selectedIds,
+    selectedLines,
+    selectedAmount,
+    selectedQuantity,
+    toggleSelect,
+    selectAll,
+    unselectAll,
+    isSelected,
+  } = useCart();
 
   if (lines.length === 0) {
     return (
@@ -17,6 +33,24 @@ export default function CartPage() {
     );
   }
 
+  const allSelected = selectedIds.length === lines.length;
+  const someSelected = selectedIds.length > 0 && !allSelected;
+  const hasSelection = selectedLines.length > 0;
+
+  const handleCheckout = () => {
+    if (!hasSelection) return;
+    navigate("/checkout", {
+      state: {
+        cartItemIds: selectedLines.map((l) => l.cartItemId),
+      },
+    });
+  };
+
+  const toggleAll = () => {
+    if (allSelected) unselectAll();
+    else selectAll();
+  };
+
   return (
     <div className="container cart-wrap">
       <header className="cart-head">
@@ -24,65 +58,113 @@ export default function CartPage() {
         <button className="btn btn-ghost btn-sm" onClick={clear}>전체 비우기</button>
       </header>
 
-      <div className="alert alert-warn cart-note">
-        ※ 백엔드 장바구니 조회 API가 아직 없어 localStorage에 사본을 보관하고 있습니다.
-        담기 요청은 서버에도 함께 전송됩니다 (memberId=1L 하드코딩).
+      <div className="cart-toolbar card">
+        <label className="cart-toolbar-all">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = someSelected;
+            }}
+            onChange={toggleAll}
+            aria-label="전체 선택"
+          />
+          <span>전체 선택 ({selectedIds.length}/{lines.length})</span>
+        </label>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={unselectAll}
+          disabled={selectedIds.length === 0}
+        >
+          선택 해제
+        </button>
       </div>
 
       <div className="cart-grid">
         <div className="cart-lines">
-          {lines.map((l) => (
-            <div key={l.productId} className="cart-line card">
-              <Link to={`/products/${l.productId}`} className="cart-line-thumb">
-                <ThumbMini name={l.name} />
-              </Link>
-              <div className="cart-line-info">
-                <div className="cart-line-cat">{l.category}</div>
-                <Link to={`/products/${l.productId}`} className="cart-line-name">
-                  {l.name}
+          {lines.map((l) => {
+            const checked = isSelected(l.cartItemId);
+            return (
+              <div
+                key={l.cartItemId}
+                className={`cart-line card${checked ? " is-selected" : ""}`}
+              >
+                <label className="cart-line-check" aria-label={`${l.name} 선택`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSelect(l.cartItemId)}
+                  />
+                </label>
+                <Link to={`/products/${l.productId}`} className="cart-line-thumb">
+                  <ThumbMini name={l.name} />
                 </Link>
-                <div className="cart-line-unit">{formatPrice(l.price)}</div>
-              </div>
-              <div className="cart-line-qty">
+                <div className="cart-line-info">
+                  <div className="cart-line-cat">{l.category}</div>
+                  <Link to={`/products/${l.productId}`} className="cart-line-name">
+                    {l.name}
+                  </Link>
+                  <div className="cart-line-unit">{formatPrice(l.price)}</div>
+                </div>
+                <div className="cart-line-qty">
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setQuantity(l.productId, l.quantity - 1)}
+                    aria-label="감소"
+                  >−</button>
+                  <span aria-live="polite">{l.quantity}</span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setQuantity(l.productId, l.quantity + 1)}
+                    aria-label="증가"
+                  >＋</button>
+                </div>
+                <div className="cart-line-total">
+                  {formatPrice(l.price * l.quantity)}
+                </div>
                 <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setQuantity(l.productId, l.quantity - 1)}
-                  aria-label="감소"
-                >−</button>
-                <span aria-live="polite">{l.quantity}</span>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setQuantity(l.productId, l.quantity + 1)}
-                  aria-label="증가"
-                >＋</button>
+                  className="btn btn-ghost btn-sm cart-line-del"
+                  onClick={() => remove(l.productId)}
+                  aria-label="삭제"
+                  title="삭제"
+                >×</button>
               </div>
-              <div className="cart-line-total">
-                {formatPrice(l.price * l.quantity)}
-              </div>
-              <button
-                className="btn btn-ghost btn-sm cart-line-del"
-                onClick={() => remove(l.productId)}
-                aria-label="삭제"
-                title="삭제"
-              >×</button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <aside className="cart-summary card">
           <h3>주문 요약</h3>
           <dl>
-            <div><dt>상품 수</dt><dd>{totalQuantity}개</dd></div>
-            <div><dt>상품 금액</dt><dd>{formatPrice(totalAmount)}</dd></div>
+            <div>
+              <dt>선택 상품</dt>
+              <dd>{selectedQuantity}개 / 전체 {totalQuantity}개</dd>
+            </div>
+            <div>
+              <dt>선택 합계</dt>
+              <dd>{formatPrice(selectedAmount)}</dd>
+            </div>
+            <div>
+              <dt>장바구니 총액</dt>
+              <dd>{formatPrice(totalAmount)}</dd>
+            </div>
             <div><dt>배송비</dt><dd>무료</dd></div>
           </dl>
           <div className="cart-total">
             <span>총 결제 예정</span>
-            <strong>{formatPrice(totalAmount)}</strong>
+            <strong>{formatPrice(selectedAmount)}</strong>
           </div>
-          <Link to="/checkout" className="btn btn-primary btn-lg btn-block">
-            결제하기
-          </Link>
+          <button
+            type="button"
+            className="btn btn-primary btn-lg btn-block"
+            onClick={handleCheckout}
+            disabled={!hasSelection}
+          >
+            {hasSelection
+              ? `선택 ${selectedLines.length}건 결제하기`
+              : "결제할 상품을 선택하세요"}
+          </button>
           <Link to="/products" className="btn btn-ghost btn-sm btn-block" style={{ marginTop: 8 }}>
             계속 쇼핑하기
           </Link>

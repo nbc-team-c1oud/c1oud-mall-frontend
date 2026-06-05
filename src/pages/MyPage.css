@@ -25,6 +25,54 @@
 .my-email { color: var(--c-text-muted); font-size: var(--c-fs-sm); margin-top: 4px; }
 .my-head .btn { margin-left: auto; }
 
+.my-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--c-sp-3);
+}
+.my-shortcut {
+  display: grid;
+  grid-template-columns: 48px 1fr 24px;
+  align-items: center;
+  gap: var(--c-sp-3);
+  padding: var(--c-sp-4) var(--c-sp-5);
+  color: inherit;
+  transition:
+    transform var(--c-dur-fast) var(--c-ease),
+    box-shadow var(--c-dur-base) var(--c-ease),
+    border-color var(--c-dur-fast) var(--c-ease);
+}
+.my-shortcut:hover {
+  transform: translateY(-1px);
+  border-color: var(--c-brand-300);
+  box-shadow: var(--c-sh-md);
+  color: inherit;
+}
+.my-shortcut-icon {
+  font-size: 28px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--c-rd-md);
+  background: var(--c-brand-50);
+}
+.my-shortcut-title {
+  font-weight: 700;
+  color: var(--c-text-heading);
+}
+.my-shortcut-sub {
+  font-size: var(--c-fs-sm);
+  color: var(--c-text-muted);
+  margin-top: 2px;
+}
+.my-shortcut-arrow {
+  font-size: 20px;
+  color: var(--c-text-muted);
+  font-weight: 700;
+}
+
 .my-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

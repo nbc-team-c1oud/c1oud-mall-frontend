@@ -1,6 +1,9 @@
 import { api } from "./client";
-import type { AddCartItemRequest } from "./types";
+import type { AddCartItemRequest, AddCartItemResponse } from "./types";
 
 export function addCartItem(body: AddCartItemRequest) {
-  return api<void>("/api/v1/carts/items", { method: "POST", body });
+  return api<AddCartItemResponse | undefined>("/api/v1/carts/items", {
+    method: "POST",
+    body,
+  });
 }

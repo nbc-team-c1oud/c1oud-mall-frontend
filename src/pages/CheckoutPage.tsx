@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import PortOne from "@portone/browser-sdk/v2";
 import type { PaymentRequest } from "@portone/browser-sdk/v2";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import type { CartLine } from "../context/CartContext";
+import { createOrder } from "../api/orders";
 import { confirmPayment } from "../api/payments";
-import { ApiError } from "../api/client";
+import type { OrderCheckoutResponse, PaymentConfirmResponse } from "../api/types";
+import { describeError } from "../lib/errorMessage";
 import { formatPrice } from "../lib/format";
 import "./CheckoutPage.css";
 
@@ -28,57 +31,107 @@ interface FailReason {
   message: string;
 }
 
+interface LocationState {
+  cartItemIds?: number[];
+}
+
 export default function CheckoutPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
-  const { lines, totalAmount, clear } = useCart();
+  const { lines, totalAmount, selectedLines, clearByIds } = useCart();
+
+  const targetLines = useMemo<CartLine[]>(() => {
+    const stateIds = (location.state as LocationState | null)?.cartItemIds;
+    if (stateIds && stateIds.length > 0) {
+      const idSet = new Set(stateIds);
+      return lines.filter((l) => idSet.has(l.cartItemId));
+    }
+    if (selectedLines.length > 0) return selectedLines;
+    return lines;
+  }, [lines, selectedLines, location.state]);
+
+  const targetAmount = targetLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
 
   const [step, setStep] = useState<Step>("idle");
-  const [paymentId, setPaymentId] = useState(() => crypto.randomUUID());
-  const fakeOrderId = useMemo(() => Math.floor(Math.random() * 9000) + 1000, []);
   const [payMethod, setPayMethod] = useState<PayMethodValue>("CARD");
   const [pointUse, setPointUse] = useState(0);
 
-  // 결과 상태
+  const [order, setOrder] = useState<OrderCheckoutResponse | null>(null);
+  const [fallbackPaymentId, setFallbackPaymentId] = useState<string | null>(null);
   const [sdkSuccess, setSdkSuccess] = useState<{ paymentId: string; txId: string } | null>(null);
   const [sdkFail, setSdkFail] = useState<FailReason | null>(null);
-  const [confirmRes, setConfirmRes] = useState<string | null>(null);
+  const [confirmRes, setConfirmRes] = useState<PaymentConfirmResponse | null>(null);
   const [confirmErr, setConfirmErr] = useState<FailReason | null>(null);
+  const [initErr, setInitErr] = useState<FailReason | null>(null);
 
-  if (lines.length === 0) {
+  if (targetLines.length === 0) {
     return (
       <div className="container co-empty">
         <h2>결제할 상품이 없어요</h2>
-        <Link to="/products" className="btn btn-primary">상품 보러가기</Link>
+        <p className="co-sub">
+          {lines.length === 0
+            ? "장바구니에 상품을 담아주세요."
+            : "장바구니로 돌아가 결제할 상품을 선택해주세요."}
+        </p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
+          <Link to="/cart" className="btn btn-secondary">장바구니로</Link>
+          <Link to="/products" className="btn btn-primary">상품 보러가기</Link>
+        </div>
       </div>
     );
   }
 
-  const pgAmount = Math.max(0, totalAmount - pointUse);
+  const pgAmount = Math.max(0, targetAmount - pointUse);
   const orderName =
-    lines.length === 1
-      ? lines[0].name
-      : `${lines[0].name} 외 ${lines.length - 1}건`;
+    targetLines.length === 1
+      ? targetLines[0].name
+      : `${targetLines[0].name} 외 ${targetLines.length - 1}건`;
 
   const resetForRetry = () => {
-    setPaymentId(crypto.randomUUID());
+    setOrder(null);
+    setFallbackPaymentId(null);
     setSdkSuccess(null);
     setSdkFail(null);
     setConfirmRes(null);
     setConfirmErr(null);
+    setInitErr(null);
     setStep("idle");
   };
 
   const runFlow = async () => {
     if (!HAS_PORTONE_ENV || pgAmount <= 0) return;
+    setOrder(null);
+    setFallbackPaymentId(null);
     setSdkSuccess(null);
     setSdkFail(null);
     setConfirmRes(null);
     setConfirmErr(null);
+    setInitErr(null);
 
-    // ① 백엔드 주문/결제 사전등록 — 현재 API 부재로 mock pause
+    // ① 백엔드 주문 생성 + 결제 사전등록 (POST /api/v1/orders)
     setStep("init");
-    await new Promise((r) => setTimeout(r, 500));
+    let created: OrderCheckoutResponse;
+    try {
+      created = await createOrder({
+        cartItemIds: targetLines.map((l) => l.cartItemId),
+      });
+      setOrder(created);
+    } catch (e) {
+      const d = describeError(e);
+      setInitErr(d);
+      setStep("done");
+      return;
+    }
+
+    // M3 미완료 갭: portonePaymentId가 비어있으면 FE에서 임시 UUID 생성
+    // TODO(payment-M3): OrderFacade.createOrder가 paymentInitiationPort.initiate를
+    //   호출하도록 머지되면 아래 폴백을 제거하고 created.portonePaymentId만 사용.
+    let portonePaymentId = created.portonePaymentId ?? "";
+    if (!portonePaymentId) {
+      portonePaymentId = crypto.randomUUID();
+      setFallbackPaymentId(portonePaymentId);
+    }
 
     // ② PortOne SDK 호출 (실제 결제창)
     setStep("portone");
@@ -87,8 +140,8 @@ export default function CheckoutPage() {
       resp = await PortOne.requestPayment({
         storeId: STORE_ID,
         channelKey: CHANNEL_KEY,
-        paymentId,
-        orderName,
+        paymentId: portonePaymentId,
+        orderName: created.orderName ?? orderName,
         totalAmount: pgAmount,
         currency: "CURRENCY_KRW",
         payMethod,
@@ -100,7 +153,11 @@ export default function CheckoutPage() {
               phoneNumber: user.phoneNumber,
             }
           : undefined,
-        customData: { orderId: fakeOrderId, source: "c1oud-mall-fe" },
+        customData: {
+          orderId: created.orderId,
+          orderNumber: created.orderNumber,
+          source: "c1oud-mall-fe",
+        },
       } as PaymentRequest);
     } catch (e) {
       setSdkFail({
@@ -111,7 +168,6 @@ export default function CheckoutPage() {
       return;
     }
 
-    // 모바일 redirect 모드 — 데스크탑 테스트에서는 거의 발생하지 않음
     if (!resp) {
       setSdkFail({
         code: "REDIRECT",
@@ -122,7 +178,6 @@ export default function CheckoutPage() {
       return;
     }
 
-    // PortOne이 실패/취소 응답
     if (resp.code) {
       setSdkFail({ code: resp.code, message: resp.message ?? "결제 실패" });
       setStep("done");
@@ -131,29 +186,24 @@ export default function CheckoutPage() {
 
     setSdkSuccess({ paymentId: resp.paymentId, txId: resp.txId });
 
-    // ③ 백엔드 결제 확정 (검증 7단계)
+    // ③ 백엔드 결제 확정
     setStep("confirm");
     try {
       const res = await confirmPayment({
-        orderId: fakeOrderId,
+        orderId: created.orderId,
         portonePaymentId: resp.paymentId,
       });
-      setConfirmRes(
-        `paymentId=${res.paymentId}, status=${res.status}${res.alreadyCompleted ? " (멱등 재호출)" : ""}`,
-      );
+      setConfirmRes(res);
     } catch (e) {
-      setConfirmErr(
-        e instanceof ApiError
-          ? { code: e.code, message: e.message }
-          : { code: "ERR", message: "알 수 없는 오류" },
-      );
+      setConfirmErr(describeError(e));
     }
     setStep("done");
   };
 
   const finishOk = () => {
-    clear();
-    navigate("/", { replace: true });
+    // 결제 완료된 cartItemId만 정리 (선택 결제 시 다른 라인은 유지)
+    clearByIds(targetLines.map((l) => l.cartItemId));
+    navigate("/orders", { replace: true });
   };
 
   const disabled = !HAS_PORTONE_ENV || pgAmount <= 0 || (step !== "idle" && step !== "done");
@@ -162,9 +212,16 @@ export default function CheckoutPage() {
     <div className="container co-wrap">
       <h1>결제하기</h1>
       <p className="co-sub">
-        PortOne V2 브라우저 SDK 실연동입니다. 테스트 채널키로 결제창이 실제로 열립니다.
-        백엔드 주문 사전등록 API가 아직 없어 ③ <code>/payments/confirm</code>은{" "}
-        <strong>PM008</strong> (Payment not found)으로 응답되는 게 정상입니다.
+        PortOne V2 브라우저 SDK 실연동 + 백엔드 주문 생성 API 연동입니다.
+        {targetLines.length < lines.length && (
+          <>
+            {" "}
+            <strong>
+              장바구니 {lines.length}건 중 {targetLines.length}건 선택 결제
+            </strong>
+            입니다.
+          </>
+        )}
       </p>
 
       {!HAS_PORTONE_ENV && (
@@ -173,7 +230,6 @@ export default function CheckoutPage() {
           <br />
           <code>.env</code>에 <code>VITE_PORTONE_STORE_ID</code>와{" "}
           <code>VITE_PORTONE_CHANNEL_KEY</code>를 채우고 dev 서버를 재시작해주세요.
-          PortOne 콘솔 → 결제연동 → 채널에서 <strong>테스트 채널</strong> 키를 발급받습니다.
         </div>
       )}
 
@@ -189,10 +245,10 @@ export default function CheckoutPage() {
             </Row>
           </div>
 
-          <h3 style={{ marginTop: 28 }}>주문 상품 ({lines.length}건)</h3>
+          <h3 style={{ marginTop: 28 }}>주문 상품 ({targetLines.length}건)</h3>
           <ul className="co-items">
-            {lines.map((l) => (
-              <li key={l.productId}>
+            {targetLines.map((l) => (
+              <li key={l.cartItemId}>
                 <span>{l.name} × {l.quantity}</span>
                 <span>{formatPrice(l.price * l.quantity)}</span>
               </li>
@@ -224,7 +280,7 @@ export default function CheckoutPage() {
               className="input"
               type="number"
               min={0}
-              max={Math.min(user?.pointBalance ?? 0, totalAmount)}
+              max={Math.min(user?.pointBalance ?? 0, targetAmount)}
               value={pointUse}
               onChange={(e) =>
                 setPointUse(
@@ -232,7 +288,7 @@ export default function CheckoutPage() {
                     0,
                     Math.min(
                       user?.pointBalance ?? 0,
-                      Math.min(totalAmount, Number(e.target.value) || 0),
+                      Math.min(targetAmount, Number(e.target.value) || 0),
                     ),
                   ),
                 )
@@ -241,7 +297,7 @@ export default function CheckoutPage() {
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              onClick={() => setPointUse(Math.min(user?.pointBalance ?? 0, totalAmount))}
+              onClick={() => setPointUse(Math.min(user?.pointBalance ?? 0, targetAmount))}
             >
               전액 사용
             </button>
@@ -251,7 +307,7 @@ export default function CheckoutPage() {
         <aside className="card co-summary">
           <h3>결제 금액</h3>
           <dl>
-            <div><dt>상품 금액</dt><dd>{formatPrice(totalAmount)}</dd></div>
+            <div><dt>상품 금액</dt><dd>{formatPrice(targetAmount)}</dd></div>
             <div><dt>포인트 사용</dt><dd>− {formatPrice(pointUse)}</dd></div>
             <div><dt>배송비</dt><dd>무료</dd></div>
           </dl>
@@ -263,8 +319,14 @@ export default function CheckoutPage() {
           <div className="co-meta">
             <div><span>storeId</span><code>{STORE_ID ? `${STORE_ID.slice(0, 12)}…` : "미설정"}</code></div>
             <div><span>channelKey</span><code>{CHANNEL_KEY ? `${CHANNEL_KEY.slice(0, 12)}…` : "미설정"}</code></div>
-            <div><span>orderId</span><code>#{fakeOrderId} (mock)</code></div>
-            <div><span>paymentId</span><code>{paymentId.slice(0, 8)}…</code></div>
+            <div>
+              <span>장바구니 총액</span>
+              <code>{formatPrice(totalAmount)}</code>
+            </div>
+            <div>
+              <span>cartItemIds</span>
+              <code>[{targetLines.map((l) => l.cartItemId).join(", ")}]</code>
+            </div>
           </div>
 
           {pgAmount <= 0 && HAS_PORTONE_ENV && (
@@ -287,14 +349,15 @@ export default function CheckoutPage() {
       {step !== "idle" && (
         <FlowModal
           step={step}
-          paymentId={paymentId}
-          orderId={fakeOrderId}
+          order={order}
+          fallbackPaymentId={fallbackPaymentId}
           pgAmount={pgAmount}
           payMethod={payMethod}
           sdkSuccess={sdkSuccess}
           sdkFail={sdkFail}
           confirmRes={confirmRes}
           confirmErr={confirmErr}
+          initErr={initErr}
           onClose={() => {
             if (step !== "done") return;
             if (confirmRes) finishOk();
@@ -317,48 +380,54 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 interface FlowModalProps {
   step: Step;
-  paymentId: string;
-  orderId: number;
+  order: OrderCheckoutResponse | null;
+  fallbackPaymentId: string | null;
   pgAmount: number;
   payMethod: PayMethodValue;
   sdkSuccess: { paymentId: string; txId: string } | null;
   sdkFail: FailReason | null;
-  confirmRes: string | null;
+  confirmRes: PaymentConfirmResponse | null;
   confirmErr: FailReason | null;
+  initErr: FailReason | null;
   onClose: () => void;
 }
 
 function FlowModal({
   step,
-  paymentId,
-  orderId,
+  order,
+  fallbackPaymentId,
   pgAmount,
   payMethod,
   sdkSuccess,
   sdkFail,
   confirmRes,
   confirmErr,
+  initErr,
   onClose,
 }: FlowModalProps) {
   const steps = [
-    { key: "init", label: "① 백엔드 주문/결제 사전등록", state: "현재 mock (API 부재)" },
+    { key: "init", label: "① POST /api/v1/orders", state: "주문 생성 + 결제 사전등록" },
     { key: "portone", label: "② PortOne.requestPayment", state: "실제 SDK 호출" },
-    { key: "confirm", label: "③ POST /api/v1/payments/confirm", state: "검증 7단계" },
+    { key: "confirm", label: "③ POST /api/v1/payments/confirm", state: "검증 + 주문 확정" },
   ] as const;
 
   const stepOrder: Record<Step, number> = { idle: -1, init: 0, portone: 1, confirm: 2, done: 3 };
   const current = stepOrder[step];
   const portoneFailed = sdkFail !== null;
+  const initFailed = initErr !== null;
 
   const stateOf = (idx: number): "wait" | "active" | "done" | "fail" => {
     if (idx < current) {
-      // portone(1) 단계에서 실패하면 confirm(2)은 wait로 남음
+      if (idx === 0 && initFailed) return "fail";
       if (idx === 1 && portoneFailed) return "fail";
       return "done";
     }
     if (idx === current) return "active";
     return "wait";
   };
+
+  const portonePaymentId =
+    sdkSuccess?.paymentId ?? fallbackPaymentId ?? order?.portonePaymentId ?? "-";
 
   return (
     <div className="co-modal" role="dialog" aria-modal="true" aria-label="결제 진행">
@@ -391,41 +460,61 @@ function FlowModal({
 
         <div className="co-modal-meta">
           <div><span>payMethod</span><code>{payMethod}</code></div>
-          <div><span>paymentId</span><code>{paymentId}</code></div>
-          <div><span>orderId</span><code>#{orderId}</code></div>
+          <div>
+            <span>orderId</span>
+            <code>{order ? `#${order.orderId} (${order.orderNumber})` : "-"}</code>
+          </div>
+          <div>
+            <span>portonePaymentId</span>
+            <code>{portonePaymentId}</code>
+          </div>
           <div><span>pgAmount</span><code>{pgAmount.toLocaleString()}원</code></div>
           {sdkSuccess && (
             <div><span>SDK txId</span><code>{sdkSuccess.txId}</code></div>
           )}
         </div>
 
-        {step === "done" && sdkFail && (
+        {fallbackPaymentId && !initErr && (
+          <div className="alert alert-warn" style={{ marginBottom: 12 }}>
+            <strong>⚠ portonePaymentId 폴백</strong>
+            <br />
+            <small>
+              백엔드가 portonePaymentId를 반환하지 않아 FE에서 임시 UUID를 생성했습니다.
+              payment M3(OrderFacade ↔ PaymentInitiation 연동) 머지 후 자동으로 사라집니다.
+            </small>
+          </div>
+        )}
+
+        {step === "done" && initErr && (
+          <div className="alert alert-error">
+            <strong>[{initErr.code}]</strong> {initErr.message}
+            <br />
+            <small>※ 주문 생성에 실패했습니다. 장바구니 상태를 확인 후 다시 시도해주세요.</small>
+          </div>
+        )}
+        {step === "done" && !initErr && sdkFail && (
           <div className="alert alert-error">
             <strong>[PortOne {sdkFail.code}]</strong> {sdkFail.message}
             <br />
-            <small>
-              ※ 사용자가 결제창을 닫았거나 PG에서 거부한 경우입니다. 다시 시도할 수 있습니다.
-            </small>
+            <small>※ 사용자가 결제창을 닫았거나 PG에서 거부한 경우입니다.</small>
           </div>
         )}
-        {step === "done" && !sdkFail && confirmErr && (
+        {step === "done" && !initErr && !sdkFail && confirmErr && (
           <div className="alert alert-error">
             <strong>[{confirmErr.code}]</strong> {confirmErr.message}
-            <br />
-            <small>
-              ※ paymentId가 백엔드 DB에 없어 <code>PM008</code> 응답이 정상입니다.
-              실제 결제 확정은 백엔드에 <code>POST /api/v1/orders</code> +
-              {" "}<code>POST /api/v1/payments</code> 추가 후 가능합니다.
-            </small>
           </div>
         )}
         {step === "done" && confirmRes && (
-          <div className="alert alert-info">✅ 결제 확정 성공 — {confirmRes}</div>
+          <div className="alert alert-info">
+            ✅ 결제 확정 성공 — paymentId={confirmRes.paymentId}, status=
+            {confirmRes.status}
+            {confirmRes.alreadyCompleted ? " (멱등 재호출)" : ""}
+          </div>
         )}
 
         {step === "done" && (
           <button className="btn btn-primary btn-block" onClick={onClose}>
-            {confirmRes ? "확인 (장바구니 비우고 홈으로)" : "다시 시도하기"}
+            {confirmRes ? "확인 (주문 내역으로 이동)" : "다시 시도하기"}
           </button>
         )}
       </div>
