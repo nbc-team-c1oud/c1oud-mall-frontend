@@ -4,181 +4,165 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { addCartItem } from "../api/carts";
+import {
+  addCartItem,
+  clearCart,
+  deleteCartItem,
+  deleteSelectedCart,
+  listCart,
+  updateCartItemQuantity,
+} from "../api/carts";
 import { ApiError } from "../api/client";
+import type { CartListItemResponse } from "../api/types";
+import { useAuth } from "./AuthContext";
 
-export interface CartLine {
-  productId: number;
-  // cart_item.id (테이블 PK). BE가 응답에 포함하기 전(M4)까지는 null.
-  cartItemId: number | null;
-  name: string;
-  price: number;
-  category: string;
-  quantity: number;
-  addedAt: string;
-}
+export type CartLine = CartListItemResponse;
 
 interface CartState {
   lines: CartLine[];
   totalQuantity: number;
   totalAmount: number;
-  // 선택 기준키는 productId (cartItemId는 null일 수 있어 부적합)
+  loading: boolean;
+  error: string | null;
+
   selectedIds: number[];
   selectedLines: CartLine[];
   selectedAmount: number;
   selectedQuantity: number;
-  add: (line: Omit<CartLine, "quantity" | "addedAt" | "cartItemId">, qty: number) => Promise<void>;
-  setQuantity: (productId: number, qty: number) => void;
-  remove: (productId: number) => void;
-  clear: () => void;
-  clearByCartItemIds: (cartItemIds: number[]) => void;
-  toggleSelect: (productId: number) => void;
+
+  refresh: () => Promise<void>;
+  add: (productId: number, qty: number) => Promise<void>;
+  setQuantity: (cartItemId: number, qty: number) => Promise<void>;
+  remove: (cartItemId: number) => Promise<void>;
+  removeSelected: (cartItemIds: number[]) => Promise<void>;
+  clear: () => Promise<void>;
+
+  toggleSelect: (cartItemId: number) => void;
   selectAll: () => void;
   unselectAll: () => void;
-  isSelected: (productId: number) => boolean;
+  isSelected: (cartItemId: number) => boolean;
 }
-
-const STORAGE_KEY = "c1oud.cart";
 
 const CartCtx = createContext<CartState | null>(null);
 
-function load(): CartLine[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Partial<CartLine>[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((l): l is Partial<CartLine> =>
-        typeof l?.productId === "number" && typeof l?.name === "string",
-      )
-      .map((l) => ({
-        productId: l.productId as number,
-        // 과거 폴백(cartItemId=productId)을 가진 데이터는 의심스러우므로 null로 정정.
-        // BE M4 이후 응답으로 받은 진짜 cartItemId만 신뢰.
-        cartItemId:
-          typeof l.cartItemId === "number" && l.cartItemId !== l.productId
-            ? l.cartItemId
-            : null,
-        name: l.name as string,
-        price: typeof l.price === "number" ? l.price : 0,
-        category: typeof l.category === "string" ? l.category : "",
-        quantity: typeof l.quantity === "number" ? l.quantity : 1,
-        addedAt: typeof l.addedAt === "string" ? l.addedAt : new Date().toISOString(),
-      }));
-  } catch {
-    return [];
-  }
-}
-
-function save(lines: CartLine[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
-  } catch {
-    /* quota exceeded — ignore */
-  }
-}
-
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [lines, setLines] = useState<CartLine[]>(() => load());
-  const [selectedIds, setSelectedIds] = useState<number[]>(() =>
-    load().map((l) => l.productId),
-  );
+  const { status } = useAuth();
+  const [lines, setLines] = useState<CartLine[]>([]);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reqIdRef = useRef(0);
 
+  const refresh = useCallback(async () => {
+    if (status !== "authed") {
+      setLines([]);
+      setSelectedIds([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    const myReq = ++reqIdRef.current;
+    setLoading(true);
+    try {
+      const data = await listCart();
+      if (myReq !== reqIdRef.current) return;
+      setLines(data.items);
+      setError(null);
+    } catch (e) {
+      if (myReq !== reqIdRef.current) return;
+      // 401은 AuthContext가 처리 — 여기선 단순 빈 카트로
+      if (e instanceof ApiError && e.status === 401) {
+        setLines([]);
+      } else {
+        setError(e instanceof Error ? e.message : "장바구니를 불러오지 못했습니다.");
+      }
+    } finally {
+      if (myReq === reqIdRef.current) setLoading(false);
+    }
+  }, [status]);
+
+  // 인증 상태 변경 시 자동 동기화
   useEffect(() => {
-    save(lines);
-  }, [lines]);
+    void refresh();
+  }, [refresh]);
 
-  // lines가 줄어들면 selectedIds도 동기화
+  // lines 변경 시 selected 정리 (없어진 cartItemId 제거)
   useEffect(() => {
     setSelectedIds((prev) => {
-      const valid = new Set(lines.map((l) => l.productId));
+      const valid = new Set(lines.map((l) => l.cartItemId));
       const next = prev.filter((id) => valid.has(id));
       return next.length === prev.length ? prev : next;
     });
   }, [lines]);
 
-  const add = useCallback<CartState["add"]>(async (snap, qty) => {
-    let serverCartItemId: number | null = null;
-    try {
-      const res = await addCartItem({ productId: snap.productId, quantity: qty });
-      if (res && typeof res.cartItemId === "number") {
-        serverCartItemId = res.cartItemId;
+  const add = useCallback<CartState["add"]>(
+    async (productId, qty) => {
+      await addCartItem({ productId, quantity: qty });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const setQuantity = useCallback<CartState["setQuantity"]>(
+    async (cartItemId, qty) => {
+      if (qty <= 0) {
+        await deleteCartItem(cartItemId);
+        setLines((prev) => prev.filter((l) => l.cartItemId !== cartItemId));
+        return;
       }
-    } catch (e) {
-      // 401(미로그인)은 인증 없이 담기 시도 — 그래도 localStorage엔 반영
-      if (!(e instanceof ApiError) || e.status !== 401) {
+      // optimistic 업데이트 — 서버 응답이 200이면 그대로, 실패 시 refresh로 복구
+      setLines((prev) =>
+        prev.map((l) =>
+          l.cartItemId === cartItemId
+            ? { ...l, quantity: qty, subTotal: l.price * qty }
+            : l,
+        ),
+      );
+      try {
+        await updateCartItemQuantity(cartItemId, { quantity: qty });
+      } catch (e) {
+        await refresh();
         throw e;
       }
-    }
+    },
+    [refresh],
+  );
 
-    setLines((prev) => {
-      const existing = prev.find((l) => l.productId === snap.productId);
-      if (existing) {
-        return prev.map((l) =>
-          l.productId === snap.productId
-            ? {
-                ...l,
-                quantity: l.quantity + qty,
-                cartItemId: serverCartItemId ?? l.cartItemId,
-              }
-            : l,
-        );
-      }
-      const newLine: CartLine = {
-        ...snap,
-        cartItemId: serverCartItemId,
-        quantity: qty,
-        addedAt: new Date().toISOString(),
-      };
-      return [...prev, newLine];
-    });
-
-    setSelectedIds((prev) =>
-      prev.includes(snap.productId) ? prev : [...prev, snap.productId],
-    );
+  const remove = useCallback<CartState["remove"]>(async (cartItemId) => {
+    await deleteCartItem(cartItemId);
+    setLines((prev) => prev.filter((l) => l.cartItemId !== cartItemId));
   }, []);
 
-  const setQuantity = useCallback<CartState["setQuantity"]>((productId, qty) => {
-    setLines((prev) =>
-      prev
-        .map((l) => (l.productId === productId ? { ...l, quantity: qty } : l))
-        .filter((l) => l.quantity > 0),
-    );
-  }, []);
-
-  const remove = useCallback<CartState["remove"]>((productId) => {
-    setLines((prev) => prev.filter((l) => l.productId !== productId));
-  }, []);
-
-  const clear = useCallback<CartState["clear"]>(() => {
-    setLines([]);
-    setSelectedIds([]);
-  }, []);
-
-  const clearByCartItemIds = useCallback<CartState["clearByCartItemIds"]>(
-    (cartItemIds) => {
-      const remove = new Set(cartItemIds);
-      setLines((prev) =>
-        prev.filter((l) => l.cartItemId === null || !remove.has(l.cartItemId)),
-      );
+  const removeSelected = useCallback<CartState["removeSelected"]>(
+    async (cartItemIds) => {
+      if (cartItemIds.length === 0) return;
+      await deleteSelectedCart(cartItemIds);
+      const removeSet = new Set(cartItemIds);
+      setLines((prev) => prev.filter((l) => !removeSet.has(l.cartItemId)));
     },
     [],
   );
 
-  const toggleSelect = useCallback<CartState["toggleSelect"]>((productId) => {
+  const clear = useCallback<CartState["clear"]>(async () => {
+    await clearCart();
+    setLines([]);
+    setSelectedIds([]);
+  }, []);
+
+  const toggleSelect = useCallback<CartState["toggleSelect"]>((cartItemId) => {
     setSelectedIds((prev) =>
-      prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId],
+      prev.includes(cartItemId)
+        ? prev.filter((id) => id !== cartItemId)
+        : [...prev, cartItemId],
     );
   }, []);
 
   const selectAll = useCallback<CartState["selectAll"]>(() => {
-    setSelectedIds(lines.map((l) => l.productId));
+    setSelectedIds(lines.map((l) => l.cartItemId));
   }, [lines]);
 
   const unselectAll = useCallback<CartState["unselectAll"]>(() => {
@@ -186,21 +170,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isSelected = useCallback<CartState["isSelected"]>(
-    (productId) => selectedIds.includes(productId),
+    (cartItemId) => selectedIds.includes(cartItemId),
     [selectedIds],
   );
 
   const totalQuantity = lines.reduce((sum, l) => sum + l.quantity, 0);
-  const totalAmount = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+  const totalAmount = lines.reduce((sum, l) => sum + l.subTotal, 0);
 
   const selectedLines = useMemo(() => {
     const sel = new Set(selectedIds);
-    return lines.filter((l) => sel.has(l.productId));
+    return lines.filter((l) => sel.has(l.cartItemId));
   }, [lines, selectedIds]);
-  const selectedAmount = selectedLines.reduce(
-    (sum, l) => sum + l.price * l.quantity,
-    0,
-  );
+  const selectedAmount = selectedLines.reduce((sum, l) => sum + l.subTotal, 0);
   const selectedQuantity = selectedLines.reduce((sum, l) => sum + l.quantity, 0);
 
   const value = useMemo<CartState>(
@@ -208,15 +189,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
       lines,
       totalQuantity,
       totalAmount,
+      loading,
+      error,
       selectedIds,
       selectedLines,
       selectedAmount,
       selectedQuantity,
+      refresh,
       add,
       setQuantity,
       remove,
+      removeSelected,
       clear,
-      clearByCartItemIds,
       toggleSelect,
       selectAll,
       unselectAll,
@@ -226,15 +210,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
       lines,
       totalQuantity,
       totalAmount,
+      loading,
+      error,
       selectedIds,
       selectedLines,
       selectedAmount,
       selectedQuantity,
+      refresh,
       add,
       setQuantity,
       remove,
+      removeSelected,
       clear,
-      clearByCartItemIds,
       toggleSelect,
       selectAll,
       unselectAll,

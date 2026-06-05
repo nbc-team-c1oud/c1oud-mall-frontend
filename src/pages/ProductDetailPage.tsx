@@ -70,15 +70,7 @@ export default function ProductDetailPage() {
     setAdding(true);
     setFlash(null);
     try {
-      await add(
-        {
-          productId: product.id,
-          name: product.name,
-          price: product.price,
-          category: product.category,
-        },
-        qty,
-      );
+      await add(product.id, qty);
       setFlash(`장바구니에 ${qty}개 담았습니다.`);
     } catch (e) {
       const msg =
@@ -173,10 +165,6 @@ export default function ProductDetailPage() {
           </Link>
         </div>
 
-        <p className="pd-hint">
-          ※ 결제 흐름은 백엔드 주문 API 추가 후 활성화됩니다.{" "}
-          <Link to="/checkout">checkout 미리보기</Link>
-        </p>
       </div>
     </div>
   );
