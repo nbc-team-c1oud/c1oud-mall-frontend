@@ -28,3 +28,7 @@ export function listMyOrders() {
 export function getOrder(orderId: number) {
   return api<OrderByOrderIdResponse>(`/api/v1/orders/${orderId}`);
 }
+
+export function cancelOrder(orderId: number) {
+  return api<void>(`/api/v1/orders/${orderId}/cancel`, { method: "PATCH" });
+}

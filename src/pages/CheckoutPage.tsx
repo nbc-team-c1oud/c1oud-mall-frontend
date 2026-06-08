@@ -38,7 +38,7 @@ interface LocationState {
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, refresh: refreshAuth } = useAuth();
   const { lines, selectedLines, refresh } = useCart();
 
   // 결제 대상 선정 우선순위:
@@ -63,7 +63,6 @@ export default function CheckoutPage() {
   const [pointUse, setPointUse] = useState(0);
 
   const [order, setOrder] = useState<OrderCheckoutResponse | null>(null);
-  const [fallbackPaymentId, setFallbackPaymentId] = useState<string | null>(null);
   const [sdkSuccess, setSdkSuccess] = useState<{ paymentId: string; txId: string } | null>(null);
   const [sdkFail, setSdkFail] = useState<FailReason | null>(null);
   const [confirmRes, setConfirmRes] = useState<PaymentConfirmResponse | null>(null);
@@ -95,7 +94,6 @@ export default function CheckoutPage() {
 
   const resetForRetry = () => {
     setOrder(null);
-    setFallbackPaymentId(null);
     setSdkSuccess(null);
     setSdkFail(null);
     setConfirmRes(null);
@@ -107,7 +105,6 @@ export default function CheckoutPage() {
   const runFlow = async () => {
     if (!HAS_PORTONE_ENV || pgAmount <= 0) return;
     setOrder(null);
-    setFallbackPaymentId(null);
     setSdkSuccess(null);
     setSdkFail(null);
     setConfirmRes(null);
@@ -120,6 +117,7 @@ export default function CheckoutPage() {
     try {
       created = await createOrder({
         cartItemIds: targetLines.map((l) => l.cartItemId),
+        pointUsedAmount: pointUse,
       });
       setOrder(created);
     } catch (e) {
@@ -129,13 +127,6 @@ export default function CheckoutPage() {
       return;
     }
 
-    // payment M3 미완료 갭: portonePaymentId가 비어있으면 FE에서 임시 UUID 생성
-    let portonePaymentId = created.portonePaymentId ?? "";
-    if (!portonePaymentId) {
-      portonePaymentId = crypto.randomUUID();
-      setFallbackPaymentId(portonePaymentId);
-    }
-
     // ② PortOne SDK 호출 (실제 결제창)
     setStep("portone");
     let resp;
@@ -143,9 +134,9 @@ export default function CheckoutPage() {
       resp = await PortOne.requestPayment({
         storeId: STORE_ID,
         channelKey: CHANNEL_KEY,
-        paymentId: portonePaymentId,
+        paymentId: created.portonePaymentId,
         orderName: created.orderName ?? orderName,
-        totalAmount: pgAmount,
+        totalAmount: created.pgAmount,
         currency: "CURRENCY_KRW",
         payMethod,
         customer: user
@@ -206,6 +197,8 @@ export default function CheckoutPage() {
   const finishOk = () => {
     // BE가 주문 시 cart_item을 자동 삭제 → 서버 상태로 refresh
     void refresh();
+    // 적립/사용 결과를 user.pointBalance에 반영
+    void refreshAuth();
     navigate("/orders", { replace: true });
   };
 
@@ -340,7 +333,6 @@ export default function CheckoutPage() {
         <FlowModal
           step={step}
           order={order}
-          fallbackPaymentId={fallbackPaymentId}
           pgAmount={pgAmount}
           payMethod={payMethod}
           sdkSuccess={sdkSuccess}
@@ -371,7 +363,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 interface FlowModalProps {
   step: Step;
   order: OrderCheckoutResponse | null;
-  fallbackPaymentId: string | null;
   pgAmount: number;
   payMethod: PayMethodValue;
   sdkSuccess: { paymentId: string; txId: string } | null;
@@ -385,7 +376,6 @@ interface FlowModalProps {
 function FlowModal({
   step,
   order,
-  fallbackPaymentId,
   pgAmount,
   payMethod,
   sdkSuccess,
@@ -417,7 +407,7 @@ function FlowModal({
   };
 
   const portonePaymentId =
-    sdkSuccess?.paymentId ?? fallbackPaymentId ?? order?.portonePaymentId ?? "-";
+    sdkSuccess?.paymentId ?? order?.portonePaymentId ?? "-";
 
   return (
     <div className="co-modal" role="dialog" aria-modal="true" aria-label="결제 진행">
@@ -463,17 +453,6 @@ function FlowModal({
             <div><span>SDK txId</span><code>{sdkSuccess.txId}</code></div>
           )}
         </div>
-
-        {fallbackPaymentId && !initErr && (
-          <div className="alert alert-warn" style={{ marginBottom: 12 }}>
-            <strong>⚠ portonePaymentId 폴백</strong>
-            <br />
-            <small>
-              백엔드가 portonePaymentId를 반환하지 않아 FE에서 임시 UUID를 생성했습니다.
-              payment M3(OrderFacade ↔ PaymentInitiation 연동) 머지 후 자동으로 사라집니다.
-            </small>
-          </div>
-        )}
 
         {step === "done" && initErr && (
           <div className="alert alert-error">
