@@ -1,22 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listMyOrders } from "../api/orders";
-import type { OrderResponse, OrderStatus } from "../api/types";
+import type { OrderResponse } from "../api/types";
 import { describeError } from "../lib/errorMessage";
 import { formatDateTime, formatPrice } from "../lib/format";
+import { deriveOrderState } from "../lib/orderStatus";
 import "./OrdersPage.css";
-
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  PENDING_PAYMENT: "결제 대기",
-  CONFIRMED: "결제 완료",
-  CANCELLED: "취소됨",
-};
-
-const STATUS_CLASS: Record<OrderStatus, string> = {
-  PENDING_PAYMENT: "badge-warn",
-  CONFIRMED: "badge-brand",
-  CANCELLED: "badge-soldout",
-};
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderResponse[] | null>(null);
@@ -77,14 +66,16 @@ export default function OrdersPage() {
 
       {!loading && !err && orders && orders.length > 0 && (
         <ul className="orders-list">
-          {orders.map((o) => (
+          {orders.map((o) => {
+            const state = deriveOrderState(o.orderStatus, o.paymentStatus);
+            return (
             <li key={o.orderId}>
               <Link to={`/orders/${o.orderId}`} className="orders-card card">
                 <div className="orders-card-head">
-                  <span className={`badge ${STATUS_CLASS[o.orderStatus]}`}>
-                    {STATUS_LABEL[o.orderStatus]}
+                  <span className={`badge ${state.badgeClass}`}>
+                    {state.label}
                   </span>
-                  <time className="orders-card-date">{formatDateTime(o.createdAt)}</time>
+                  <time className="orders-card-date">{formatDateTime(o.createAt)}</time>
                 </div>
                 <div className="orders-card-name">{o.orderName}</div>
                 <div className="orders-card-meta">
@@ -98,7 +89,8 @@ export default function OrdersPage() {
                 </div>
               </Link>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

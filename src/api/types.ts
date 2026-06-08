@@ -133,43 +133,94 @@ export interface OrderPreviewItem {
 
 export interface OrderCheckoutRequest {
   cartItemIds: number[];
+  pointUsedAmount: number;
 }
 
 export interface OrderCheckoutResponse {
   orderId: number;
-  portonePaymentId: string | null;
+  portonePaymentId: string;
   orderNumber: string;
   orderName: string;
-  orderStatus: OrderStatus;
-  totalPrice: number;
+  /** BE typo 잔존: 소문자 s (v3 §13) */
+  orderstatus: OrderStatus;
+  totalAmount: number;
+  /** PortOne SDK totalAmount 인자에 넘기는 값 = totalAmount − pointUsedAmount */
+  pgAmount: number;
+  pointUsedAmount: number;
 }
 
 export interface OrderItemResponse {
-  productId: number;
+  /** 환불 요청 시 필요. BE OrderItemResponse 갱신 후부터 항상 존재. */
+  orderItemId?: number;
   productNameSnapshot: string;
   priceSnapshot: number;
   quantity: number;
-  refundedQuantity: number;
-  subtotal: number;
+  productId?: number;
+  refundedQuantity?: number;
+  subtotal?: number;
 }
 
 export interface OrderResponse {
   orderId: number;
+  paymentId: number;
+  paymentStatus: PaymentStatus;
   orderNumber: string;
   orderName: string;
   orderStatus: OrderStatus;
   totalAmount: number;
-  paymentId: number;
+  pgAmount: number;
+  pointUsedAmount: number;
+  pointEarnedAmount: number;
+  /** BE typo 잔존: createdAt 아님 (v3 §13) */
+  createAt: string;
+  orderItems: OrderItemResponse[];
+}
+
+export type OrderByOrderIdResponse = OrderResponse;
+
+/* === Point === */
+
+export type PointTransactionType =
+  | "USE"
+  | "EARN"
+  | "USE_CANCEL"
+  | "EARN_CANCEL";
+
+export interface PointBalanceResponse {
+  pointBalance: number;
+}
+
+export interface PointHistoryResponse {
+  pointHistoryId: number;
+  type: PointTransactionType;
+  amount: number;
+  /** 여긴 정상 createdAt (v3 §9.2 주석) */
   createdAt: string;
 }
 
-export interface OrderByOrderIdResponse {
-  orderId: number;
-  orderNumber: string;
-  orderName: string;
-  orderStatus: OrderStatus;
-  totalAmount: number;
-  paymentId: number;
-  createdAt: string;
-  orderItems: OrderItemResponse[];
+/* === Refund === */
+
+export type RefundStatus =
+  | "REQUESTED"
+  | "DB_COMMITTED"
+  | "PG_CANCELLED"
+  | "FAILED";
+
+export interface RefundItemRequest {
+  orderItemId: number;
+  quantity: number;
+}
+
+export interface RefundRequest {
+  items: RefundItemRequest[];
+  reason: string;
+}
+
+export interface RefundResponse {
+  refundId: number;
+  refundStatus: RefundStatus;
+  pgRefundAmount: number;
+  pointRefundAmount: number;
+  /** 202(DB_COMMITTED) 응답에만 포함 */
+  warning?: string;
 }
